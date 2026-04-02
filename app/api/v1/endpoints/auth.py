@@ -1,0 +1,167 @@
+"""
+Auth Routes - app/api/v1/endpoints/auth.py
+
+POST /auth/register
+POST /auth/verify-otp
+POST /auth/login
+POST /auth/refresh
+POST /auth/forgot-password
+POST /auth/reset-password
+POST /auth/logout
+"""
+
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.database import get_db
+from app.core.security import (
+    create_access_token, create_refresh_token, decode_token,
+    hash_password, verify_password,
+)
+from app.models.models import User, Role
+from app.schemas.schemas import (
+    LoginRequest, OTPVerifyRequest, PasswordResetConfirm,
+    PasswordResetRequest, RefreshTokenRequest, RegisterRequest, TokenResponse,
+)
+from app.utils.otp import send_otp, verify_otp
+
+router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+@router.post("/register", status_code=status.HTTP_201_CREATED)
+async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
+    """Register a new user and send OTP email for verification."""
+    # Check duplicate email
+    result = await db.execute(select(User).where(User.email == data.email))
+    if result.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    # Resolve role by name
+    role_result = await db.execute(select(Role).where(Role.name == data.role))
+    role = role_result.scalar_one_or_none()
+    if not role:
+        raise HTTPException(status_code=400, detail=f"Role '{data.role}' not found")
+
+    user = User(
+        email=data.email,
+        password_hash=hash_password(data.password),
+        tenant_id=data.tenant_id,
+        role_id=role.id,
+        is_active=True,
+        is_verified=False,
+    )
+    db.add(user)
+    await db.commit()
+
+    # Send OTP (non-blocking failure)
+    send_otp(data.email, purpose="verification")
+
+    return {
+        "message": "Registration successful. Check your email for the OTP.",
+        "email": data.email,
+    }
+
+
+@router.post("/verify-otp")
+async def verify_otp_route(data: OTPVerifyRequest, db: AsyncSession = Depends(get_db)):
+    """Verify email OTP and activate account."""
+    if not verify_otp(data.email, data.otp):
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+
+    result = await db.execute(select(User).where(User.email == data.email))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.is_verified = True
+    await db.commit()
+
+    return {"message": "Email verified. You can now log in."}
+
+
+@router.post("/login", response_model=TokenResponse)
+async def login(data: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    """Authenticate and return JWT tokens."""
+    result = await db.execute(
+        select(User).where(User.email == data.email, User.is_active == True)
+    )
+    user = result.scalar_one_or_none()
+
+    if not user or not verify_password(data.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    if not user.is_verified:
+        raise HTTPException(status_code=403, detail="Email not verified. Check your inbox for the OTP.")
+
+    # Load role name
+    role_result = await db.execute(select(Role).where(Role.id == user.role_id))
+    role = role_result.scalar_one_or_none()
+    role_name = role.name if role else "Staff"
+
+    # Update last login
+    user.last_login = datetime.utcnow()
+    await db.commit()
+
+    payload = {
+        "sub": str(user.id),
+        "user_id": str(user.id),
+        "tenant_id": str(user.tenant_id),
+        "email": user.email,
+        "role": role_name,
+    }
+
+    return TokenResponse(
+        access_token=create_access_token(payload),
+        refresh_token=create_refresh_token(payload),
+    )
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh_token(data: RefreshTokenRequest):
+    """Issue a new access token using a valid refresh token."""
+    payload = decode_token(data.refresh_token)
+    if not payload or payload.get("type") != "refresh":
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+
+    new_payload = {k: v for k, v in payload.items() if k not in ("exp", "type")}
+    return TokenResponse(
+        access_token=create_access_token(new_payload),
+        refresh_token=create_refresh_token(new_payload),
+    )
+
+
+@router.post("/forgot-password")
+async def forgot_password(data: PasswordResetRequest, db: AsyncSession = Depends(get_db)):
+    """Send OTP for password reset."""
+    result = await db.execute(select(User).where(User.email == data.email))
+    user = result.scalar_one_or_none()
+    # Always return success to avoid email enumeration
+    if user:
+        send_otp(data.email, purpose="password_reset")
+    return {"message": "If that email is registered, an OTP has been sent."}
+
+
+@router.post("/reset-password")
+async def reset_password(data: PasswordResetConfirm, db: AsyncSession = Depends(get_db)):
+    """Reset password using OTP."""
+    if not verify_otp(data.email, data.otp):
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP")
+
+    result = await db.execute(select(User).where(User.email == data.email))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.password_hash = hash_password(data.new_password)
+    await db.commit()
+
+    return {"message": "Password reset successfully."}
+
+
+@router.post("/logout")
+async def logout():
+    """Logout (JWT is stateless — client discards the token)."""
+    return {"message": "Logged out successfully."}

@@ -24,8 +24,16 @@ logger = logging.getLogger("skitech")
 
 # ── Logging ───────────────────────────────────────────────
 
+# Skip logging for these paths (documentation & health checks)
+_NO_LOG_PATHS = {"/docs", "/redoc", "/openapi.json", "/health", "/favicon.ico"}
+
+
 class LoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        # Skip logging for documentation endpoints
+        if request.url.path in _NO_LOG_PATHS:
+            return await call_next(request)
+        
         start = time.time()
         logger.info(f"→ {request.method} {request.url.path}")
 

@@ -12,6 +12,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
+from fastapi.responses import JSONResponse
 
 from app.api.v1.router import router as v1_router
 from app.core.config import settings
@@ -70,6 +72,24 @@ app.add_middleware(LoggingMiddleware)
 
 # ── Routers ───────────────────────────────────────────────
 app.include_router(v1_router, prefix="/api")
+
+
+# ── Custom OpenAPI endpoint with caching headers ────────────
+@app.get("/openapi.json", include_in_schema=False)
+async def get_openapi_schema():
+    """Serve OpenAPI schema with cache headers for faster UI loads."""
+    if not app.openapi_schema:
+        app.openapi_schema = get_openapi(
+            title=app.title,
+            version=app.version,
+            description=app.description,
+            routes=app.routes,
+        )
+    response = JSONResponse(app.openapi_schema)
+    # Cache for 1 hour in browser, 24 hours in intermediary cache
+    response.headers["Cache-Control"] = "public, max-age=3600, s-maxage=86400"
+    response.headers["ETag"] = f'"{hash(str(app.openapi_schema))}"'
+    return response
 
 
 @app.get("/health", tags=["Health"])

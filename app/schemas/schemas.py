@@ -4,7 +4,7 @@ All Pydantic schemas - app/schemas/schemas.py
 
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
@@ -431,3 +431,279 @@ class WorkflowInstanceResponse(BaseModel):
 
 class WorkflowRejectRequest(BaseModel):
     reason: str = Field(..., min_length=1)
+
+# ===========================================================
+# USERS
+# ===========================================================
+
+class UserResponse(BaseModel):
+    id: UUID
+    email: str
+    first_name: Optional[str]
+    last_name: Optional[str]
+    phone_number: Optional[str]
+    role_id: UUID
+    tenant_id: UUID
+    property_id: Optional[UUID]
+    is_active: bool
+    is_verified: bool
+    last_login: Optional[datetime]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class UserUpdate(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone_number: Optional[str] = None
+    property_id: Optional[UUID] = None
+
+
+class UserRoleUpdate(BaseModel):
+    role_id: UUID
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(..., min_length=8)
+
+    @field_validator("new_password")
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        if not any(c.isupper() for c in v):
+            raise ValueError("Password must have at least one uppercase letter")
+        if not any(c.islower() for c in v):
+            raise ValueError("Password must have at least one lowercase letter")
+        if not any(c.isdigit() for c in v):
+            raise ValueError("Password must have at least one digit")
+        return v
+
+
+class UserInviteRequest(BaseModel):
+    email: EmailStr
+    role: str = "Staff"
+    property_id: Optional[UUID] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+
+# ===========================================================
+# STATS / DASHBOARD
+# ===========================================================
+
+# ── Shared ──────────────────────────────────────────────────
+
+class WeeklyTaskDay(BaseModel):
+    day: str
+    done: int
+    total: int
+
+
+class RevenueDay(BaseModel):
+    day: str
+    revenue: float
+
+
+class AlertItem(BaseModel):
+    type: str          # "low_stock" | "late_checkin" | "maintenance" | "shift"
+    title: str
+    property_name: str
+    time_ago: str
+    severity: str      # "warning" | "info" | "success"
+
+
+class TaskItem(BaseModel):
+    id: UUID
+    task: str
+    assignee: str
+    due: str
+    status: str        # "done" | "pending" | "upcoming"
+
+
+class StaffAttendanceItem(BaseModel):
+    name: str
+    dept: str
+    check_in: Optional[str]
+    status: str        # "in" | "absent"
+    initials: str
+
+
+# ── Owner Stats ──────────────────────────────────────────────
+
+class OwnerStatsResponse(BaseModel):
+    total_properties: int
+    total_staff: int
+    daily_revenue: float
+    pending_tasks: int
+    overdue_tasks: int
+    revenue_trend: List[RevenueDay]
+    recent_alerts: List[AlertItem]
+
+    class Config:
+        from_attributes = True
+
+
+# ── Manager Stats ────────────────────────────────────────────
+
+class ManagerStatsResponse(BaseModel):
+    staff_present: int
+    staff_total: int
+    tasks_pending: int
+    tasks_overdue: int
+    checkins_today: int
+    daily_revenue: float
+    todays_tasks: List[TaskItem]
+    staff_attendance: List[StaffAttendanceItem]
+    weekly_tasks: List[WeeklyTaskDay]
+
+    class Config:
+        from_attributes = True
+
+
+# ── Staff Stats ──────────────────────────────────────────────
+
+class StaffStatsResponse(BaseModel):
+    shift_hours: float
+    my_tasks_today: int
+    my_tasks_overdue: int
+    completed_this_week: int
+    pending_sops: int
+    todays_tasks: List[TaskItem]
+    weekly_performance: List[WeeklyTaskDay]
+
+    class Config:
+        from_attributes = True
+
+# ===========================================================
+# REPORTS
+# ===========================================================
+
+class OccupancyReport(BaseModel):
+    property_id: UUID
+    property_name: str
+    total_rooms: int
+    occupied_rooms: int
+    available_rooms: int
+    occupancy_percentage: float
+    maintenance_rooms: int
+
+    class Config:
+        from_attributes = True
+
+
+class OccupancyReportResponse(BaseModel):
+    period: str
+    reports: List[OccupancyReport]
+
+
+class AuditLogResponse(BaseModel):
+    id: UUID
+    tenant_id: Optional[UUID]
+    user_id: Optional[UUID]
+    user_email: Optional[str]
+    action: str
+    resource_type: str
+    resource_id: Optional[str]
+    details: Optional[str]
+    severity: str
+    status: str
+    ip_address: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AuditReportResponse(BaseModel):
+    total: int
+    page: int
+    limit: int
+    logs: List[AuditLogResponse]
+
+# ===========================================================
+# ROOMS & BOOKINGS
+# ===========================================================
+
+class RoomStatusEnum(str, Enum):
+    available = "available"
+    occupied = "occupied"
+    maintenance = "maintenance"
+
+
+class BookingStatusEnum(str, Enum):
+    booked = "booked"
+    checked_in = "checked_in"
+    completed = "completed"
+    cancelled = "cancelled"
+
+
+class RoomCreate(BaseModel):
+    room_number: str
+    room_type: Optional[str] = None
+    price_per_night: Optional[float] = None
+    status: RoomStatusEnum = RoomStatusEnum.available
+
+
+class RoomUpdate(BaseModel):
+    room_number: Optional[str] = None
+    room_type: Optional[str] = None
+    price_per_night: Optional[float] = None
+    status: Optional[RoomStatusEnum] = None
+
+
+class RoomResponse(BaseModel):
+    id: UUID
+    tenant_id: UUID
+    property_id: UUID
+    room_number: str
+    room_type: Optional[str]
+    price_per_night: Optional[float]
+    status: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class BookingCreate(BaseModel):
+    room_id: UUID
+    customer_name: Optional[str] = None
+    customer_phone: Optional[str] = None
+    check_in: datetime
+    check_out: datetime
+    total_amount: Optional[float] = None
+
+    @field_validator("check_out", mode="after")
+    @classmethod
+    def check_out_after_check_in(cls, v, info):
+        check_in = info.data.get("check_in")
+        if check_in and v <= check_in:
+            raise ValueError("check_out must be after check_in")
+        return v
+
+
+class BookingUpdate(BaseModel):
+    customer_name: Optional[str] = None
+    customer_phone: Optional[str] = None
+    check_in: Optional[datetime] = None
+    check_out: Optional[datetime] = None
+    total_amount: Optional[float] = None
+    status: Optional[BookingStatusEnum] = None
+
+
+class BookingResponse(BaseModel):
+    id: UUID
+    tenant_id: UUID
+    property_id: UUID
+    room_id: UUID
+    customer_name: Optional[str]
+    customer_phone: Optional[str]
+    check_in: datetime
+    check_out: datetime
+    total_amount: Optional[float]
+    status: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_current_user, require_permission
+from app.api.dependencies import require_permission
 from app.core.database import get_db
 from app.models.models import SOPCategory, SOPItem, SOPVersion
 from app.schemas.schemas import (

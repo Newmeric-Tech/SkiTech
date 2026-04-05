@@ -6,6 +6,7 @@ Loads all settings from environment variables / .env file.
 
 from typing import List, Optional
 from pydantic_settings import BaseSettings
+from pathlib import Path
 
 
 class Settings(BaseSettings):
@@ -21,7 +22,7 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
 
     # Database
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:password@localhost:5432/skitech"
+    DATABASE_URL: str = "postgresql+asyncpg://postgres:pstsql16@localhost:5432/skitech"
     DB_POOL_SIZE: int = 10
     DB_MAX_OVERFLOW: int = 20
     DB_ECHO: bool = False
@@ -53,7 +54,7 @@ class Settings(BaseSettings):
     SENTRY_DSN: Optional[str] = None
 
     class Config:
-        env_file = ".env"
+        env_file = str(Path(__file__).resolve().parent.parent.parent / ".env")
         case_sensitive = True
 
     @property

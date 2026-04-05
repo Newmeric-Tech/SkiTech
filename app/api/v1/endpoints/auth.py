@@ -13,7 +13,8 @@ POST /auth/logout
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import select, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -34,10 +35,15 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
     """Register a new user and send OTP email for verification."""
-    # Check duplicate email
+    # Check duplicate email (both active and soft-deleted users)
     result = await db.execute(select(User).where(User.email == data.email))
-    if result.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Email already registered")
+    existing_user = result.scalar_one_or_none()
+    
+    if existing_user:
+        if existing_user.deleted_at is None:
+            raise HTTPException(status_code=400, detail="Email already registered")
+        else:
+            raise HTTPException(status_code=400, detail="This email was previously registered. Please contact support.")
 
     # Resolve role by name
     role_result = await db.execute(select(Role).where(Role.name == data.role))
@@ -54,10 +60,25 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
         is_verified=False,
     )
     db.add(user)
-    await db.commit()
+    
+    try:
+        await db.commit()
+    except IntegrityError as e:
+        await db.rollback()
+        if "duplicate key" in str(e).lower() or "unique constraint" in str(e).lower():
+            raise HTTPException(status_code=400, detail="Email already registered")
+        raise HTTPException(status_code=500, detail="Registration failed. Please try again.")
 
-    # Send OTP (non-blocking failure)
-    send_otp(data.email, purpose="verification")
+    # Send OTP and verify it was sent
+    otp_sent = send_otp(data.email, purpose="verification")
+    
+    if not otp_sent:
+        # OTP failed to send - still return user created but inform them
+        return {
+            "message": "Registration successful, but OTP email failed to send. Please check your email configuration or try the verify-otp endpoint manually if you have the OTP.",
+            "email": data.email,
+            "warning": "OTP email delivery failed"
+        }
 
     return {
         "message": "Registration successful. Check your email for the OTP.",
@@ -75,6 +96,10 @@ async def verify_otp_route(data: OTPVerifyRequest, db: AsyncSession = Depends(ge
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    
+    # Prevent verification of soft-deleted accounts
+    if user.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="This account has been deleted")
 
     user.is_verified = True
     await db.commit()
@@ -86,7 +111,11 @@ async def verify_otp_route(data: OTPVerifyRequest, db: AsyncSession = Depends(ge
 async def login(data: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """Authenticate and return JWT tokens."""
     result = await db.execute(
-        select(User).where(User.email == data.email, User.is_active == True)
+        select(User).where(
+            User.email == data.email,
+            User.is_active == True,
+            User.deleted_at == None  # Exclude soft-deleted users
+        )
     )
     user = result.scalar_one_or_none()
 
@@ -136,7 +165,12 @@ async def refresh_token(data: RefreshTokenRequest):
 @router.post("/forgot-password")
 async def forgot_password(data: PasswordResetRequest, db: AsyncSession = Depends(get_db)):
     """Send OTP for password reset."""
-    result = await db.execute(select(User).where(User.email == data.email))
+    result = await db.execute(
+        select(User).where(
+            User.email == data.email,
+            User.deleted_at == None  # Exclude soft-deleted users
+        )
+    )
     user = result.scalar_one_or_none()
     # Always return success to avoid email enumeration
     if user:
@@ -150,7 +184,12 @@ async def reset_password(data: PasswordResetConfirm, db: AsyncSession = Depends(
     if not verify_otp(data.email, data.otp):
         raise HTTPException(status_code=400, detail="Invalid or expired OTP")
 
-    result = await db.execute(select(User).where(User.email == data.email))
+    result = await db.execute(
+        select(User).where(
+            User.email == data.email,
+            User.deleted_at == None  # Exclude soft-deleted users
+        )
+    )
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")

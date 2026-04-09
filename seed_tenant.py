@@ -30,7 +30,7 @@ async def seed_tenant():
             business_name="SkiTech Demo Hotel",
             business_type="hotel",
             owner_name="Demo Owner",
-            contact_email="admin@skitech.local",
+            contact_email="admin@skitech.test",
             contact_phone="+1-800-SKITECH",
             subscription_status="active",
             is_active=True

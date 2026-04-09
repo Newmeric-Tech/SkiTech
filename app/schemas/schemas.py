@@ -7,7 +7,23 @@ from enum import Enum
 from typing import List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+import re
+from typing import Annotated
+
+from pydantic import AfterValidator, BaseModel, EmailStr, Field, field_validator
+
+# Permissive email type — allows reserved/special TLDs like .test, .local, .example
+# that EmailStr (email-validator) rejects. Still enforces basic shape.
+_EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
+
+
+def _validate_loose_email(v: str) -> str:
+    if not isinstance(v, str) or not _EMAIL_RE.match(v):
+        raise ValueError("value is not a valid email address")
+    return v.lower()
+
+
+LooseEmail = Annotated[str, AfterValidator(_validate_loose_email)]
 
 
 # ===========================================================
@@ -15,7 +31,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 # ===========================================================
 
 class RegisterRequest(BaseModel):
-    email: EmailStr
+    email: LooseEmail
     password: str = Field(..., min_length=8)
     role: str = "Staff"  # Default role - users can only register as Staff or Manager, not as Tenant Admin
     tenant_id: UUID
@@ -42,12 +58,12 @@ class RegisterRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: LooseEmail
     password: str
     expected_role: Optional[str] = None
 
 class OTPVerifyRequest(BaseModel):
-    email: EmailStr
+    email: LooseEmail
     otp: str
 
 
@@ -62,16 +78,16 @@ class TokenResponse(BaseModel):
 
 
 class PasswordResetRequest(BaseModel):
-    email: EmailStr
+    email: LooseEmail
 
 
 class PasswordResetConfirm(BaseModel):
-    email: EmailStr
+    email: LooseEmail
     otp: str
     new_password: str = Field(..., min_length=8)
 
 class SuperAdminLoginRequest(BaseModel):
-    email: EmailStr
+    email: LooseEmail
     password: str
 
 # ===========================================================
@@ -494,7 +510,7 @@ class ChangePasswordRequest(BaseModel):
 
 
 class UserInviteRequest(BaseModel):
-    email: EmailStr
+    email: LooseEmail
     role: str = "Staff"
     property_id: Optional[UUID] = None
     first_name: Optional[str] = None

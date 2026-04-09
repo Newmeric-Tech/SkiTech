@@ -17,8 +17,17 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=8)
-    role: str = "Staff"
+    role: str = "Staff"  # Default role - users can only register as Staff or Manager, not as Tenant Admin
     tenant_id: UUID
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v: str) -> str:
+        # Only allow Staff and Manager for self-registration
+        # Tenant Admin and Super Admin must be assigned by administrators
+        if v not in ["Staff", "Manager"]:
+            raise ValueError(f"Role '{v}' cannot be self-assigned. Contact your administrator.")
+        return v
 
     @field_validator("password")
     @classmethod
@@ -35,7 +44,7 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
-
+    expected_role: Optional[str] = None
 
 class OTPVerifyRequest(BaseModel):
     email: EmailStr
@@ -61,6 +70,9 @@ class PasswordResetConfirm(BaseModel):
     otp: str
     new_password: str = Field(..., min_length=8)
 
+class SuperAdminLoginRequest(BaseModel):
+    email: EmailStr
+    password: str
 
 # ===========================================================
 # PROPERTY
@@ -707,3 +719,4 @@ class BookingResponse(BaseModel):
 
     class Config:
         from_attributes = True
+

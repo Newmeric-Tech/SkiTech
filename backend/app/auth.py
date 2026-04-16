@@ -31,13 +31,16 @@ def register_user(db: Session, email: str, password: str, role: str, tenant_id: 
         )
 
 
-def login_user(db: Session, email: str, password: str):
+def login_user(db: Session, email: str, password: str, expected_role: str | None = None):
     user = db.query(User).filter(User.email == email).first()
 
     if not user:
         return None
 
     if not verify_password(password, user.password):
+        return None
+
+    if expected_role and user.role.lower() != expected_role.lower():
         return None
 
     payload = {

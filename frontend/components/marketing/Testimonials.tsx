@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import { motion, useInView } from "motion/react";
+import { motion, useInView } from "framer-motion";
 import { Star } from "lucide-react";
 
 const font = "Merriweather, serif";

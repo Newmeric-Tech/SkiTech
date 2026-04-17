@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { motion, useInView, AnimatePresence } from "motion/react";
+import { motion, useInView, AnimatePresence } from "framer-motion";
 import {
   Building2, Users, ClipboardList, BarChart3, Shield, Truck,
   ChevronDown, CheckCircle2, Zap, ArrowRight,

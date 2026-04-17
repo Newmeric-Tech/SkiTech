@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import { motion, useInView } from "motion/react";
+import { motion, useInView } from "framer-motion";
 
 const stats = [
   { value: "50+", label: "Properties Managed" },

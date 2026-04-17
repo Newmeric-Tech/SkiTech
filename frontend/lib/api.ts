@@ -84,6 +84,7 @@ export interface UserRecord {
   first_name: string | null;
   last_name: string | null;
   phone_number: string | null;
+  role: string;
   role_id: string;
   tenant_id: string;
   property_id: string | null;
